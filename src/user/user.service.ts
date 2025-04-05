@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from 'src/prisma.service';
@@ -14,17 +18,15 @@ export class UserService {
   async create(dto: CreateUserDto): Promise<CommonResponse<{ id: number }>> {
     try {
       const new_user = await this.prisma.user.create({ data: dto });
+      throw new Error('asd');
       return {
         success: true,
         result: { id: new_user.id },
       };
     } catch (e) {
-      return {
-        success: false,
-        result: {
-          error: e || 'Произошла неизвестная ошибка при создании пользователя',
-        },
-      };
+      throw new InternalServerErrorException(
+        `Произошла ошибка при создании пользователя: ${e}`,
+      );
     }
   }
 
@@ -32,116 +34,94 @@ export class UserService {
     id?: number,
     filters?: UserFilterDto,
   ): Promise<CommonResponse<{ users: User[] }>> {
-    try {
-      const where: Prisma.userWhereInput = {};
+    const where: Prisma.userWhereInput = {};
 
-      if (id) {
-        where.id = id;
-      }
-
-      if (filters) {
-        if (filters.full_name) {
-          where.full_name = {
-            contains: filters.full_name,
-          };
-        }
-
-        if (filters.role) {
-          where.role = filters.role;
-        }
-
-        if (!!filters.efficiency) {
-          where.efficiency = +filters.efficiency;
-        }
-      }
-
-      const users: User[] = await this.prisma.user.findMany({
-        where,
-        select: {
-          id: true,
-          full_name: true,
-          role: true,
-          efficiency: true,
-        },
-      });
-
-      if (id && users.length === 0) {
-        return {
-          success: false,
-          result: {
-            error: 'Пользователь не найден',
-          },
-        };
-      }
-
-      if (users?.length === 0) {
-        return {
-          success: false,
-          result: { error: 'Пользователь не найден' },
-        };
-      }
-
-      return {
-        success: true,
-        result: { users },
-      };
-    } catch (e) {
-      return {
-        success: false,
-        result: {
-          error: 'Произошла ошибка при получении пользователей',
-        },
-      };
+    if (id) {
+      where.id = id;
     }
+
+    if (filters) {
+      if (filters.full_name) {
+        where.full_name = {
+          contains: filters.full_name,
+        };
+      }
+
+      if (filters.role) {
+        where.role = filters.role;
+      }
+
+      if (!!filters.efficiency) {
+        where.efficiency = +filters.efficiency;
+      }
+    }
+
+    const users: User[] = await this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        full_name: true,
+        role: true,
+        efficiency: true,
+      },
+    });
+
+    if (id && users.length === 0) {
+      throw new NotFoundException('Пользователь не найден');
+    }
+
+    if (users?.length === 0) {
+      throw new NotFoundException('Пользователь не найден');
+    }
+
+    return {
+      success: true,
+      result: { users },
+    };
   }
 
   async updateUser(
     id: number,
     updateData: UpdateUserDto,
   ): Promise<CommonResponse<User>> {
-    try {
-      const updatedUser = await this.prisma.user.update({
-        where: { id },
-        data: updateData,
-      });
+    const existsUser = await this.prisma.user.findUnique({ where: { id } });
+    if (!existsUser?.id)
+      throw new NotFoundException('Такого пользователя не существует');
 
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: updateData,
+    });
+    if (!!updatedUser?.id) {
       return {
         success: true,
         result: updatedUser,
       };
-    } catch (e) {
-      return {
-        success: false,
-        result: {
-          error: 'Произошла ошибка при обновлении данных пользователя',
-        },
-      };
+    } else {
+      throw new InternalServerErrorException(
+        'Произошла неизвестная ошибка при обновлени данных пользователя. Попробуйте позже',
+      );
     }
   }
 
   async deleteUser(id?: number): Promise<CommonResponse<User | undefined>> {
-    try {
-      if (id) {
-        const deletedUser = await this.prisma.user.delete({
-          where: { id },
-        });
-        return {
-          success: true,
-          result: deletedUser,
-        };
-      } else {
-        await this.prisma.user.deleteMany();
-        return {
-          success: true,
-          result: undefined,
-        };
-      }
-    } catch (e) {
+    if (id) {
+      const existsUser = await this.prisma.user.findUnique({ where: { id } });
+      if (!existsUser?.id)
+        throw new NotFoundException('Такого пользователя не существует'); // todo: вынести в фнкцию
+
+      const deletedUser = await this.prisma.user.delete({
+        where: { id },
+      });
       return {
-        success: false,
-        result: {
-          error: 'Произошла ошибка при удалении',
-        },
+        success: true,
+        result: deletedUser,
+      };
+    } else {
+      await this.prisma.user.deleteMany();
+      return {
+        success: true,
+        result: undefined,
       };
     }
   }
