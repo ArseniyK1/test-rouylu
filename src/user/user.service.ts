@@ -18,7 +18,6 @@ export class UserService {
   async create(dto: CreateUserDto): Promise<CommonResponse<{ id: number }>> {
     try {
       const new_user = await this.prisma.user.create({ data: dto });
-      throw new Error('asd');
       return {
         success: true,
         result: { id: new_user.id },
